@@ -25,6 +25,7 @@ import torch
 from scope.core.config import get_model_file_path
 from scope.core.pipelines.interface import Pipeline
 
+from .modules.action_path import ActionPathBuilder
 from .schema import LingBotWorldConfig
 
 if TYPE_CHECKING:
@@ -474,16 +475,16 @@ class LingBotWorldPipeline(Pipeline):
         else:
             seed = base_seed
 
-        # Input image: Scope passes `video` as list of frames (uint8 THWC)
-        input_video = kwargs.get("video")
-        if not input_video or not isinstance(input_video, list) or len(input_video) < 1:
+        # Input image: Scope passes `images` as list of frames (uint8 THWC)
+        input_images = kwargs.get("images")
+        if not input_images or not isinstance(input_images, list) or len(input_images) < 1:
             raise ValueError(
-                "LingBotWorldPipeline expects a single input frame via kwargs['video']"
+                "LingBotWorldPipeline expects a single input frame via kwargs['images'][0]"
             )
 
-        first_frame = input_video[0]
+        first_frame = input_images[0]
         if not isinstance(first_frame, torch.Tensor):
-            raise ValueError("kwargs['video'][0] must be a torch.Tensor")
+            raise ValueError("kwargs['images'][0] must be a torch.Tensor")
 
         # first_frame shape: (1, H, W, C), uint8 in [0,255]
         frame = first_frame
@@ -498,6 +499,17 @@ class LingBotWorldPipeline(Pipeline):
 
         max_area = int(self.height * self.width)
 
+        # Handle control input for action path synthesis
+        action_path = None
+        ctrl_input = kwargs.get("ctrl_input")
+        if ctrl_input:
+            with ActionPathBuilder() as builder:
+                action_path = builder.build_from_ctrl_input(
+                    ctrl_input=ctrl_input,
+                    frame_num=int(self.frame_num),
+                    image_size=(self.height, self.width)
+                )
+
         impl = self._get_impl()
         video_chw = impl.generate(
             prompt=prompt,
@@ -508,9 +520,36 @@ class LingBotWorldPipeline(Pipeline):
             guide_scale=float(self.guide_scale),
             shift=float(self.shift),
             seed=seed,
-            action_path=None,
+            action_path=action_path,
         )
 
         # Convert [3, F, H, W] in [-1,1] -> [F, H, W, 3] in [0,1]
         video_thwc = ((video_chw + 1.0) / 2.0).clamp(0.0, 1.0).permute(1, 2, 3, 0)
         return {"video": video_thwc}
+
+    def manage_cache(self, **kwargs):
+        """Handle cache management operations."""
+        operation = kwargs.get("operation", "reset")
+        
+        if operation == "reset" or operation == "init_cache":
+            # Reset the implementation to force re-initialization
+            if self._impl is not None:
+                # Clean up GPU memory
+                if hasattr(self._impl, 'low_noise_model'):
+                    self._impl.low_noise_model.to("cpu")
+                if hasattr(self._impl, 'high_noise_model'):
+                    self._impl.high_noise_model.to("cpu")
+                
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                
+                self._impl = None
+                
+                logger.info("Cache reset completed")
+        
+        return {"status": "success", "operation": operation}
+
+    def init_cache(self, **kwargs):
+        """Initialize/reset cache - alias for manage_cache with init_cache operation."""
+        return self.manage_cache(operation="init_cache", **kwargs)
