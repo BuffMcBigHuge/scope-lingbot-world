@@ -445,6 +445,7 @@ class LingBotWorldPipeline(Pipeline):
         self.nf4_dir = Path(nf4_dir) if nf4_dir else get_model_file_path("lingbot-world-base-cam-nf4")
 
         self._impl: _WanI2V_NF4 | None = None
+        self._action_path_builder: ActionPathBuilder | None = None
 
     def _get_impl(self) -> _WanI2V_NF4:
         if self._impl is None:
@@ -455,6 +456,11 @@ class LingBotWorldPipeline(Pipeline):
                 t5_cpu=self.t5_cpu,
             )
         return self._impl
+
+    def _get_action_path_builder(self) -> ActionPathBuilder:
+        if self._action_path_builder is None:
+            self._action_path_builder = ActionPathBuilder()
+        return self._action_path_builder
 
     def __call__(self, **kwargs) -> dict:
         """Scope entrypoint."""
@@ -475,40 +481,65 @@ class LingBotWorldPipeline(Pipeline):
         else:
             seed = base_seed
 
-        # Input image: Scope passes `images` as list of frames (uint8 THWC)
+        # Input image: treat kwargs['images'] as list of file paths first, fallback to video tensors
+        pil_image = None
         input_images = kwargs.get("images")
-        if not input_images or not isinstance(input_images, list) or len(input_images) < 1:
+        
+        if input_images and isinstance(input_images, list) and len(input_images) > 0:
+            # Try to treat as file paths first
+            first_input = input_images[0]
+            if isinstance(first_input, str):
+                # Load PIL from file path
+                from PIL import Image
+                try:
+                    pil_image = Image.open(first_input).convert("RGB")
+                except Exception as e:
+                    logger.warning(f"Failed to load image from path '{first_input}': {e}")
+                    # Fall back to video tensor handling
+            elif isinstance(first_input, torch.Tensor):
+                # Handle as video tensor (original behavior)
+                frame = first_input
+                if frame.ndim == 4 and frame.shape[0] == 1:
+                    frame = frame[0]
+                
+                # Convert to PIL image (RGB)
+                from PIL import Image
+                frame_u8 = frame.detach().to(torch.uint8).cpu().numpy()
+                pil_image = Image.fromarray(frame_u8, mode="RGB")
+        
+        # Fallback to kwargs['video'] if images processing failed
+        if pil_image is None:
+            video_input = kwargs.get("video")
+            if video_input and isinstance(video_input, list) and len(video_input) > 0:
+                first_frame = video_input[0]
+                if isinstance(first_frame, torch.Tensor):
+                    frame = first_frame
+                    if frame.ndim == 4 and frame.shape[0] == 1:
+                        frame = frame[0]
+                    
+                    # Convert to PIL image (RGB)
+                    from PIL import Image
+                    frame_u8 = frame.detach().to(torch.uint8).cpu().numpy()
+                    pil_image = Image.fromarray(frame_u8, mode="RGB")
+        
+        # Final validation - only raise error if both approaches fail
+        if pil_image is None:
             raise ValueError(
-                "LingBotWorldPipeline expects a single input frame via kwargs['images'][0]"
+                "LingBotWorldPipeline expects either image file paths via kwargs['images'] or tensors via kwargs['images'][0] or kwargs['video'][0]"
             )
-
-        first_frame = input_images[0]
-        if not isinstance(first_frame, torch.Tensor):
-            raise ValueError("kwargs['images'][0] must be a torch.Tensor")
-
-        # first_frame shape: (1, H, W, C), uint8 in [0,255]
-        frame = first_frame
-        if frame.ndim == 4 and frame.shape[0] == 1:
-            frame = frame[0]
-
-        # Convert to PIL image (RGB)
-        from PIL import Image
-
-        frame_u8 = frame.detach().to(torch.uint8).cpu().numpy()
-        pil_image = Image.fromarray(frame_u8, mode="RGB")
 
         max_area = int(self.height * self.width)
 
-        # Handle control input for action path synthesis
+        # Handle control input for action path synthesis - use persistent builder
         action_path = None
         ctrl_input = kwargs.get("ctrl_input")
         if ctrl_input:
-            with ActionPathBuilder() as builder:
-                action_path = builder.build_from_ctrl_input(
-                    ctrl_input=ctrl_input,
-                    frame_num=int(self.frame_num),
-                    image_size=(self.height, self.width)
-                )
+            builder = self._get_action_path_builder()
+            action_path = builder.build_from_ctrl_input(
+                ctrl_input=ctrl_input,
+                frame_num=int(self.frame_num),
+                image_size=(self.height, self.width)
+            )
 
         impl = self._get_impl()
         video_chw = impl.generate(

@@ -1,7 +1,8 @@
 """LingBot-World pipeline configuration schema for Scope."""
 
-from typing import ClassVar
+from typing import ClassVar, Optional, List
 
+from pydantic import Field
 from scope.core.pipelines.artifacts import HuggingfaceRepoArtifact
 from scope.core.pipelines.base_schema import (
     BasePipelineConfig,
@@ -20,8 +21,8 @@ class LingBotWorldConfig(BasePipelineConfig):
         "Image-to-video world model (Wan2.1-based) with NF4 quantized diffusion weights"
     )
     pipeline_version: ClassVar[str] = "0.1.0"
-    docs_url: ClassVar[str | None] = "https://github.com/Robbyant/lingbot-world"
-    estimated_vram_gb: ClassVar[float | None] = 32.0
+    docs_url: ClassVar[Optional[str]] = "https://github.com/Robbyant/lingbot-world"
+    estimated_vram_gb: ClassVar[Optional[float]] = 32.0
 
     # This pipeline requires model files.
     requires_models: ClassVar[bool] = True
@@ -55,14 +56,19 @@ class LingBotWorldConfig(BasePipelineConfig):
     supports_lora: ClassVar[bool] = False
     supports_vace: ClassVar[bool] = False
     supports_quantization: ClassVar[bool] = True
-    recommended_quantization_vram_threshold: ClassVar[float | None] = 48.0
+    recommended_quantization_vram_threshold: ClassVar[Optional[float]] = 48.0
+    supports_cache_management: ClassVar[bool] = True
 
-    # Scope modes: declare as video-mode pipeline expecting 1 input frame (the starting image).
+    # Scope modes: declare as text-mode pipeline like scope-overworld WaypointConfig
     modes: ClassVar[dict[str, ModeDefaults]] = {
-        "video": ModeDefaults(default=True, input_size=1)
+        "text": ModeDefaults(default=True)
     }
 
     supports_prompts: ClassVar[bool] = True
+
+    # Additional input fields for UI integration
+    ctrl_input: Optional[str] = None  # WASD control input string
+    images: Optional[List[str]] = Field(default=None, description="List of image file paths")
 
     # Output resolution defaults. LingBot-World examples are 480x832 or 720x1280.
     height: int = height_field(default=480)
