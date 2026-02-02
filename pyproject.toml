@@ -1,0 +1,23 @@
+[project]
+name = "scope-lingbot-world"
+version = "0.1.0"
+description = "LingBot-World (NF4) plugin for Daydream Scope"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  # LingBot-World provides the `wan` package and model code (Wan2.1-derived)
+  "lingbot-world @ git+https://github.com/Robbyant/lingbot-world.git",
+  # Required for NF4 (4-bit) weights
+  "bitsandbytes>=0.49.0",
+]
+
+[project.entry-points.scope]
+scope-lingbot-world = "scope_lingbot_world"
+
+[dependency-groups]
+dev = [
+  "daydream-scope",
+]
+
+[tool.uv.sources]
+daydream-scope = { git = "https://github.com/daydreamlive/scope" }
