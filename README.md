@@ -14,29 +14,57 @@ This plugin is designed to work with Scope's plugin system (Pluggy entrypoints).
 
 ## Model artifacts
 
-LingBot-World's **quantized diffusion models** are distributed in a separate repo from the **base assets** (VAE + T5 + tokenizer files). You will need both:
+LingBot-World’s **NF4 diffusion weights** are distributed separately from the **base assets** (VAE + T5 + tokenizer). You need both:
 
-1) **Base model assets** (VAE + T5 + tokenizer):
+1) Base assets:
 - <https://huggingface.co/robbyant/lingbot-world-base-cam>
 
-2) **NF4 diffusion weights**:
+2) NF4 diffusion weights:
 - <https://huggingface.co/cahlen/lingbot-world-base-cam-nf4>
 
-Scope should download these automatically via the pipeline's `artifacts` list.
+Scope should download these automatically via the pipeline’s `artifacts` list.
+
+### HuggingFace token
+
+If you hit 401/403 or rate limits, set a read token:
+
+```bash
+export HF_TOKEN=hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
 
 ## Install
 
+Follow Scope’s **manual installation** flow (plugin support is preview/CLI-only right now).
+
+Install the plugin within the `scope` directory:
+
 ```bash
-pip install scope-lingbot-world
+DAYDREAM_SCOPE_PREVIEW=1 uv run daydream-scope install git+https://github.com/BuffMcBigHuge/scope-lingbot-world.git
 ```
 
-(Or install from GitHub while iterating.)
+Confirm that the plugin is installed:
+
+```bash
+DAYDREAM_SCOPE_PREVIEW=1 uv run daydream-scope plugins
+```
+
+Confirm that the `lingbot_world` pipeline is available:
+
+```bash
+DAYDREAM_SCOPE_PREVIEW=1 uv run daydream-scope pipelines
+```
+
+## Upgrade
+
+```bash
+DAYDREAM_SCOPE_PREVIEW=1 uv run daydream-scope install --upgrade git+https://github.com/BuffMcBigHuge/scope-lingbot-world.git
+```
 
 ## Notes / assumptions
 
 - The quantized weights in `cahlen/lingbot-world-base-cam-nf4` are stored as `model.pt` state dicts. This plugin reconstructs the model architecture from the bundled `config.json`, replaces `nn.Linear` layers with `bitsandbytes.nn.Linear4bit`, then loads the state dict.
 - This plugin intentionally does **not** attempt multi-GPU / torchrun / FSDP. It is meant as a single-GPU pipeline wrapper for Scope.
-- LingBot-World's upstream codebase is Wan2.1-based and not authored by Daydream.
+- LingBot-World is Wan2.1-based; upstream repo: <https://github.com/Robbyant/lingbot-world>
 
 ## License
 
